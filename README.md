@@ -176,7 +176,7 @@ crons = ["0 9 * * *"]
 
 ```bash
 # Tải script
-curl -o setup-secrets.sh https://raw.githubusercontent.com/[link-to-script]
+curl -o setup-secrets.sh https://raw.githubusercontent.com/khahdihdz/Epicgames-telebot/refs/heads/main/setup-secrets.sh
 
 # Hoặc tạo file thủ công từ artifact "setup-secrets.sh"
 
@@ -266,7 +266,7 @@ Published epic-games-bot (1.23 sec)
 
 ```bash
 # Tải script
-curl -o set-webhook.sh https://raw.githubusercontent.com/[link]
+curl -o set-webhook.sh https://raw.githubusercontent.com/khahdihdz/Epicgames-telebot/refs/heads/main/set-webhook.sh
 
 # Hoặc tạo từ artifact "set-webhook.sh"
 
