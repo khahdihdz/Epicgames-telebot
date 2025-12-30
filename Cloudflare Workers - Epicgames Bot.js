@@ -1,494 +1,478 @@
-// Cloudflare Workers Script cho Epic Games Telegram Bot
-// Sử dụng Environment Variables và Secrets
+import os
+import asyncio
+import logging
+from datetime import datetime, timedelta
+import json
+import aiohttp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
+from flask import Flask, render_template, jsonify, request, send_from_directory
+from threading import Thread
+import sqlite3
+from pathlib import Path
 
-// Google Sheets API helpers
-async function getAccessToken(env) {
-  const serviceAccount = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  
-  const jwtHeader = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  
-  const now = Math.floor(Date.now() / 1000);
-  const jwtClaimSet = {
-    iss: serviceAccount.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now
-  };
-  
-  const jwtClaimSetEncoded = btoa(JSON.stringify(jwtClaimSet))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-  
-  const signatureInput = `${jwtHeader}.${jwtClaimSetEncoded}`;
-  
-  // Sign với private key
-  const privateKey = serviceAccount.private_key.replace(/\\n/g, '\n');
-  const pemHeader = '-----BEGIN PRIVATE KEY-----';
-  const pemFooter = '-----END PRIVATE KEY-----';
-  const pemContents = privateKey.substring(
-    pemHeader.length,
-    privateKey.length - pemFooter.length
-  ).replace(/\s/g, '');
-  
-  const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-  
-  const key = await crypto.subtle.importKey(
-    'pkcs8',
-    binaryDer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  
-  const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    new TextEncoder().encode(signatureInput)
-  );
-  
-  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-  
-  const jwt = `${signatureInput}.${signatureBase64}`;
-  
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
-  });
-  
-  const data = await response.json();
-  return data.access_token;
-}
+# Logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-// Đọc dữ liệu từ Google Sheets
-async function getUsers(env) {
-  const token = await getAccessToken(env);
-  const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${env.SPREADSHEET_ID}/values/Users!A:B`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  
-  const data = await response.json();
-  return data.values?.slice(1) || []; // Bỏ header
-}
+# Configuration
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', 'YOUR_TELEGRAM_BOT_TOKEN')
+ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))
+CHECK_INTERVAL = 3600
+PORT = int(os.getenv('PORT', 10000))  # Render uses port 10000
+RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', f'http://localhost:{PORT}')
 
-// Thêm user vào Google Sheets
-async function addUser(env, chatId, username) {
-  const token = await getAccessToken(env);
-  
-  // Kiểm tra user đã tồn tại chưa
-  const users = await getUsers(env);
-  const exists = users.some(user => user[0] === chatId.toString());
-  
-  if (exists) {
-    return false; // User đã tồn tại
-  }
-  
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${env.SPREADSHEET_ID}/values/Users!A:B:append?valueInputOption=RAW`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        values: [[chatId, username || 'Unknown', new Date().toISOString()]]
-      })
-    }
-  );
-  
-  return true; // User mới được thêm
-}
+# Database path
+DB_PATH = Path('bot_data.db')
 
-// Xóa user khỏi Google Sheets
-async function removeUser(env, chatId) {
-  const token = await getAccessToken(env);
-  const users = await getUsers(env);
-  const rowIndex = users.findIndex(user => user[0] === chatId.toString());
-  
-  if (rowIndex !== -1) {
-    await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${env.SPREADSHEET_ID}:batchUpdate`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          requests: [{
-            deleteDimension: {
-              range: {
-                sheetId: 0,
-                dimension: 'ROWS',
-                startIndex: rowIndex + 1,
-                endIndex: rowIndex + 2
-              }
-            }
-          }]
-        })
-      }
-    );
-    return true;
-  }
-  
-  return false;
-}
+# Database
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS subscribers
+                 (user_id INTEGER PRIMARY KEY, username TEXT, subscribed_at TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS games
+                 (id TEXT PRIMARY KEY, title TEXT, description TEXT, 
+                  image_url TEXT, start_date TEXT, end_date TEXT, notified INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS stats
+                 (key TEXT PRIMARY KEY, value INTEGER)''')
+    conn.commit()
+    conn.close()
 
-// Lấy game miễn phí từ Epic Games
-async function getFreeGames() {
-  try {
-    const response = await fetch(
-      'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=vi&country=VN&allowCountries=VN'
-    );
-    
-    const data = await response.json();
-    const games = [];
-    
-    for (const element of data.data.Catalog.searchStore.elements) {
-      if (element.promotions?.promotionalOffers?.length > 0) {
-        const promo = element.promotions.promotionalOffers[0].promotionalOffers[0];
-        games.push({
-          title: element.title,
-          description: element.description,
-          imageUrl: element.keyImages?.find(img => img.type === 'DieselStoreFrontWide')?.url || 
-                    element.keyImages?.[0]?.url || '',
-          startDate: promo.startDate,
-          endDate: promo.endDate,
-          url: `https://store.epicgames.com/vi/p/${element.catalogNs.mappings[0]?.pageSlug || element.productSlug || element.urlSlug}`
-        });
-      }
-    }
-    
-    return games;
-  } catch (error) {
-    console.error('Error fetching Epic Games:', error);
-    return [];
-  }
-}
+init_db()
 
-// Gửi tin nhắn qua Telegram
-async function sendTelegramMessage(env, chatId, text, options = {}) {
-  try {
-    const response = await fetch(
-      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: text,
-          parse_mode: 'HTML',
-          disable_web_page_preview: false,
-          ...options
-        })
-      }
-    );
-    
-    return response.json();
-  } catch (error) {
-    console.error('Error sending Telegram message:', error);
-    return null;
-  }
-}
+class Database:
+    @staticmethod
+    def get_connection():
+        return sqlite3.connect(DB_PATH, check_same_thread=False)
 
-// Gửi ảnh qua Telegram
-async function sendTelegramPhoto(env, chatId, photoUrl, caption) {
-  try {
-    const response = await fetch(
-      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          photo: photoUrl,
-          caption: caption,
-          parse_mode: 'HTML'
-        })
-      }
-    );
-    
-    return response.json();
-  } catch (error) {
-    console.error('Error sending Telegram photo:', error);
-    // Fallback to text message if photo fails
-    await sendTelegramMessage(env, chatId, caption);
-    return null;
-  }
-}
+    @staticmethod
+    def add_subscriber(user_id, username):
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('INSERT OR IGNORE INTO subscribers VALUES (?, ?, ?)',
+                      (user_id, username, datetime.now().isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
 
-// Format thông tin game
-function formatGameMessage(game, isNotification = false) {
-  const endDate = new Date(game.endDate);
-  const now = new Date();
-  const hoursLeft = Math.floor((endDate - now) / (1000 * 60 * 60));
-  const daysLeft = Math.floor(hoursLeft / 24);
-  
-  let timeLeft = '';
-  if (daysLeft > 0) {
-    timeLeft = `${daysLeft} ngày ${hoursLeft % 24} giờ`;
-  } else {
-    timeLeft = `${hoursLeft} giờ`;
-  }
-  
-  const prefix = isNotification ? '🆓 <b>Game miễn phí mới!</b>\n\n' : '';
-  
-  return (
-    `${prefix}🎮 <b>${game.title}</b>\n\n` +
-    `📝 ${game.description?.substring(0, 300) || 'Không có mô tả'}${game.description?.length > 300 ? '...' : ''}\n\n` +
-    `⏰ Còn lại: <b>${timeLeft}</b>\n` +
-    `📅 Hết hạn: ${endDate.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n\n` +
-    `🔗 <a href="${game.url}">Nhận ngay tại đây</a>`
-  );
-}
+    @staticmethod
+    def remove_subscriber(user_id):
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('DELETE FROM subscribers WHERE user_id = ?', (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
 
-// Xử lý webhook từ Telegram
-async function handleTelegramUpdate(env, update) {
-  const message = update.message;
-  if (!message) return;
-  
-  const chatId = message.chat.id;
-  const text = message.text;
-  const username = message.from.username;
-  const firstName = message.from.first_name || '';
-  
-  if (text === '/start') {
-    const isNew = await addUser(env, chatId, username);
-    
-    if (isNew) {
-      await sendTelegramMessage(
-        env,
-        chatId,
-        `🎮 <b>Chào mừng ${firstName} đến với Epic Games Free Bot!</b>\n\n` +
-        '✅ Bạn đã đăng ký nhận thông báo game miễn phí từ Epic Games Store.\n\n' +
-        '📢 Bot sẽ tự động thông báo mỗi khi có game mới miễn phí.\n\n' +
-        '<b>Các lệnh có sẵn:</b>\n' +
-        '🎯 /games - Xem game miễn phí hiện tại\n' +
-        '📊 /stats - Thống kê bot\n' +
-        '❌ /stop - Hủy đăng ký thông báo\n\n' +
-        '💡 <i>Tip: Nhấn vào nút Menu để xem tất cả lệnh!</i>'
-      );
-    } else {
-      await sendTelegramMessage(
-        env,
-        chatId,
-        `👋 Chào lại ${firstName}!\n\n` +
-        '✅ Bạn đã đăng ký nhận thông báo từ trước rồi.\n\n' +
-        'Sử dụng /games để xem game miễn phí hiện tại!'
-      );
-    }
-    
-  } else if (text === '/stop') {
-    const removed = await removeUser(env, chatId);
-    
-    if (removed) {
-      await sendTelegramMessage(
-        env,
-        chatId,
-        '👋 Bạn đã hủy đăng ký thông báo thành công.\n\n' +
-        'Sử dụng /start để đăng ký lại bất cứ lúc nào!'
-      );
-    } else {
-      await sendTelegramMessage(
-        env,
-        chatId,
-        '❓ Bạn chưa đăng ký thông báo.\n\n' +
-        'Sử dụng /start để bắt đầu nhận thông báo!'
-      );
-    }
-    
-  } else if (text === '/games') {
-    await sendTelegramMessage(env, chatId, '🔍 Đang tìm kiếm game miễn phí...');
-    
-    const games = await getFreeGames();
-    
-    if (games.length === 0) {
-      await sendTelegramMessage(
-        env,
-        chatId,
-        '😔 Hiện tại không có game miễn phí nào.\n\n' +
-        'Bot sẽ thông báo khi có game mới! 🔔'
-      );
-      return;
-    }
-    
-    await sendTelegramMessage(
-      env,
-      chatId,
-      `🎉 Tìm thấy <b>${games.length}</b> game đang miễn phí:`
-    );
-    
-    for (const game of games) {
-      const caption = formatGameMessage(game);
-      
-      if (game.imageUrl) {
-        await sendTelegramPhoto(env, chatId, game.imageUrl, caption);
-      } else {
-        await sendTelegramMessage(env, chatId, caption);
-      }
-      
-      // Delay nhỏ giữa các tin nhắn
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    
-  } else if (text === '/stats') {
-    const users = await getUsers(env);
-    await sendTelegramMessage(
-      env,
-      chatId,
-      `📊 <b>Thống kê Bot</b>\n\n` +
-      `👥 Tổng số người dùng: <b>${users.length}</b>\n` +
-      `🤖 Bot version: 1.0\n` +
-      `⚡ Status: <b>Đang hoạt động</b>`
-    );
-    
-  } else if (text?.startsWith('/')) {
-    await sendTelegramMessage(
-      env,
-      chatId,
-      '❓ Lệnh không hợp lệ.\n\n' +
-      '<b>Các lệnh có sẵn:</b>\n' +
-      '/start - Đăng ký nhận thông báo\n' +
-      '/games - Xem game miễn phí\n' +
-      '/stats - Thống kê bot\n' +
-      '/stop - Hủy đăng ký'
-    );
-  }
-}
+    @staticmethod
+    def get_subscribers():
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('SELECT user_id FROM subscribers')
+            subs = [row[0] for row in c.fetchall()]
+            return subs
+        finally:
+            conn.close()
 
-// Gửi thông báo cho tất cả users
-async function notifyAllUsers(env) {
-  const users = await getUsers(env);
-  const games = await getFreeGames();
-  
-  console.log(`Found ${games.length} free games, notifying ${users.length} users`);
-  
-  if (games.length === 0) {
-    console.log('No free games available');
-    return { success: true, message: 'No games to notify', games: 0, users: 0 };
-  }
-  
-  let successCount = 0;
-  let errorCount = 0;
-  
-  for (const user of users) {
-    const chatId = user[0];
-    
-    try {
-      await sendTelegramMessage(
-        env,
-        chatId,
-        `🔔 <b>Thông báo game miễn phí!</b>\n\n` +
-        `Hiện có <b>${games.length}</b> game đang miễn phí trên Epic Games:`
-      );
-      
-      for (const game of games) {
-        const caption = formatGameMessage(game, true);
-        
-        if (game.imageUrl) {
-          await sendTelegramPhoto(env, chatId, game.imageUrl, caption);
-        } else {
-          await sendTelegramMessage(env, chatId, caption);
+    @staticmethod
+    def get_subscriber_count():
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('SELECT COUNT(*) FROM subscribers')
+            count = c.fetchone()[0]
+            return count
+        finally:
+            conn.close()
+
+    @staticmethod
+    def add_game(game_data):
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('''INSERT OR REPLACE INTO games VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                      (game_data['id'], game_data['title'], game_data['description'],
+                       game_data['image_url'], game_data['start_date'], 
+                       game_data['end_date'], game_data.get('notified', 0)))
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_unnotified_games():
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('SELECT * FROM games WHERE notified = 0')
+            games = c.fetchall()
+            return games
+        finally:
+            conn.close()
+
+    @staticmethod
+    def mark_game_notified(game_id):
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('UPDATE games SET notified = 1 WHERE id = ?', (game_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_recent_games(limit=5):
+        conn = Database.get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('SELECT * FROM games ORDER BY start_date DESC LIMIT ?', (limit,))
+            games = c.fetchall()
+            return games
+        finally:
+            conn.close()
+
+class EpicGamesAPI:
+    @staticmethod
+    async def get_free_games():
+        url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
+        params = {
+            'locale': 'en-US',
+            'country': 'US',
+            'allowCountries': 'US'
         }
         
-        // Delay để tránh rate limit
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-      
-      successCount++;
-      
-    } catch (error) {
-      console.error(`Error notifying user ${chatId}:`, error);
-      errorCount++;
-    }
-    
-    // Delay giữa các user
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-  
-  return {
-    success: true,
-    message: 'Notifications sent',
-    games: games.length,
-    users: users.length,
-    successful: successCount,
-    failed: errorCount
-  };
-}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    data = await response.json()
+                    
+            games = []
+            elements = data.get('data', {}).get('Catalog', {}).get('searchStore', {}).get('elements', [])
+            
+            for game in elements:
+                promotions = game.get('promotions')
+                if not promotions:
+                    continue
+                    
+                promotional_offers = promotions.get('promotionalOffers', [])
+                if not promotional_offers or not promotional_offers[0].get('promotionalOffers'):
+                    continue
+                
+                offer = promotional_offers[0]['promotionalOffers'][0]
+                
+                image_url = None
+                for image in game.get('keyImages', []):
+                    if image.get('type') in ['Carousel', 'DieselStoreFrontWide', 'OfferImageWide']:
+                        image_url = image.get('url')
+                        break
+                
+                game_data = {
+                    'id': game.get('id'),
+                    'title': game.get('title'),
+                    'description': game.get('description', 'Không có mô tả'),
+                    'image_url': image_url,
+                    'start_date': offer.get('startDate'),
+                    'end_date': offer.get('endDate'),
+                    'notified': 0
+                }
+                games.append(game_data)
+            
+            return games
+        except Exception as e:
+            logger.error(f"Error fetching games: {e}")
+            return []
 
-// Main handler
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
+# Bot Commands
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    Database.add_subscriber(user.id, user.username)
     
-    // Webhook endpoint từ Telegram
-    if (request.method === 'POST' && url.pathname === '/webhook') {
-      try {
-        const update = await request.json();
-        await handleTelegramUpdate(env, update);
-        return new Response('OK', { status: 200 });
-      } catch (error) {
-        console.error('Webhook error:', error);
-        return new Response('Error', { status: 500 });
-      }
+    keyboard = [
+        [InlineKeyboardButton("🎮 Game miễn phí hiện tại", callback_data='current_games')],
+        [InlineKeyboardButton("💝 Ủng hộ", callback_data='donate')],
+        [InlineKeyboardButton("ℹ️ Thông tin", callback_data='info')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    welcome_text = f"""
+🎮 <b>Chào mừng {user.first_name}!</b>
+
+Bot sẽ tự động thông báo khi có game miễn phí mới trên Epic Games Store!
+
+✅ Bạn đã đăng ký nhận thông báo
+📢 Nhận thông báo tự động mỗi tuần
+🆓 Hoàn toàn miễn phí
+
+<b>Lệnh có sẵn:</b>
+/start - Bắt đầu và đăng ký
+/stop - Hủy đăng ký
+/games - Xem game miễn phí hiện tại
+/donate - Ủng hộ phát triển bot
+"""
+    
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    Database.remove_subscriber(user.id)
+    await update.message.reply_text(
+        "😢 Bạn đã hủy đăng ký nhận thông báo.\n"
+        "Gửi /start bất cứ lúc nào để đăng ký lại!"
+    )
+
+async def games_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔍 Đang tìm kiếm game miễn phí...")
+    games = await EpicGamesAPI.get_free_games()
+    
+    if not games:
+        await update.message.reply_text("❌ Hiện tại không có game miễn phí nào.")
+        return
+    
+    for game in games:
+        await send_game_notification(context.bot, update.effective_chat.id, game)
+
+async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    donate_text = """
+💝 <b>Ủng hộ phát triển Bot</b>
+
+Nếu bot hữu ích với bạn, hãy ủng hộ để duy trì server và phát triển thêm tính năng mới!
+
+🏦 <b>Ngân hàng MSB</b>
+📱 Số TK: 13001011869246
+👤 Chủ TK: DINH TRONG KHANH
+
+Hoặc quét mã QR bên dưới ⬇️
+"""
+    
+    keyboard = [[InlineKeyboardButton("🏠 Về Menu", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_photo(
+        photo="https://api.vietqr.io/image/970426-13001011869246-GuEo6F2.jpg?accountName=DINH%20TRONG%20KHANH&amount=0",
+        caption=donate_text,
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'current_games':
+        await query.message.reply_text("🔍 Đang tìm kiếm game miễn phí...")
+        games = await EpicGamesAPI.get_free_games()
+        
+        if not games:
+            await query.message.reply_text("❌ Hiện tại không có game miễn phí nào.")
+            return
+        
+        for game in games:
+            await send_game_notification(context.bot, query.message.chat_id, game)
+    
+    elif query.data == 'donate':
+        donate_text = """
+💝 <b>Ủng hộ phát triển Bot</b>
+
+Nếu bot hữu ích với bạn, hãy ủng hộ để duy trì server và phát triển thêm tính năng mới!
+
+🏦 <b>Ngân hàng MSB</b>
+📱 Số TK: 13001011869246
+👤 Chủ TK: DINH TRONG KHANH
+
+Hoặc quét mã QR bên dưới ⬇️
+"""
+        keyboard = [[InlineKeyboardButton("🏠 Về Menu", callback_data='back_to_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.reply_photo(
+            photo="https://api.vietqr.io/image/970426-13001011869246-GuEo6F2.jpg?accountName=DINH%20TRONG%20KHANH&amount=0",
+            caption=donate_text,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+    
+    elif query.data == 'info':
+        info_text = f"""
+ℹ️ <b>Thông tin Bot</b>
+
+📊 <b>Thống kê:</b>
+👥 Người đăng ký: {Database.get_subscriber_count()}
+🎮 Game đã thông báo: {len(Database.get_recent_games(100))}
+
+🔧 <b>Tính năng:</b>
+✅ Thông báo tự động hàng tuần
+✅ Dashboard quản lý web
+✅ Hỗ trợ donate QR code
+
+💻 <b>Phát triển bởi:</b>
+DINH TRONG KHANH
+
+🌐 Dashboard: {RENDER_EXTERNAL_URL}
+"""
+        keyboard = [[InlineKeyboardButton("🏠 Về Menu", callback_data='back_to_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.reply_text(
+            info_text,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+    
+    elif query.data == 'back_to_menu':
+        keyboard = [
+            [InlineKeyboardButton("🎮 Game miễn phí hiện tại", callback_data='current_games')],
+            [InlineKeyboardButton("💝 Ủng hộ", callback_data='donate')],
+            [InlineKeyboardButton("ℹ️ Thông tin", callback_data='info')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.reply_text(
+            "🏠 <b>Menu Chính</b>\n\nChọn một tùy chọn bên dưới:",
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+
+async def send_game_notification(bot, chat_id, game):
+    try:
+        end_date = datetime.fromisoformat(game['end_date'].replace('Z', '+00:00'))
+    except:
+        end_date = datetime.now() + timedelta(days=7)
+    
+    message = f"""
+🎮 <b>{game['title']}</b>
+
+📝 {game['description'][:200]}{'...' if len(game['description']) > 200 else ''}
+
+⏰ <b>Miễn phí đến:</b> {end_date.strftime('%d/%m/%Y %H:%M')}
+
+🔗 <b>Link:</b> https://store.epicgames.com/
+
+⚡️ Nhanh tay nhận ngay trước khi hết hạn!
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("🎁 Nhận ngay", url="https://store.epicgames.com/")],
+        [InlineKeyboardButton("💝 Ủng hộ Bot", callback_data='donate')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    try:
+        if game['image_url']:
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=game['image_url'],
+                caption=message,
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
+        else:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        logger.error(f"Error sending notification: {e}")
+
+async def check_free_games(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Checking for free games...")
+    games = await EpicGamesAPI.get_free_games()
+    
+    for game in games:
+        Database.add_game(game)
+    
+    unnotified = Database.get_unnotified_games()
+    
+    if unnotified:
+        subscribers = Database.get_subscribers()
+        logger.info(f"Notifying {len(subscribers)} subscribers about {len(unnotified)} new games")
+        
+        for game_row in unnotified:
+            game = {
+                'id': game_row[0],
+                'title': game_row[1],
+                'description': game_row[2],
+                'image_url': game_row[3],
+                'start_date': game_row[4],
+                'end_date': game_row[5]
+            }
+            
+            for user_id in subscribers:
+                try:
+                    await send_game_notification(context.bot, user_id, game)
+                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Error notifying user {user_id}: {e}")
+            
+            Database.mark_game_notified(game['id'])
+
+# Flask Dashboard
+app = Flask(__name__)
+
+@app.route('/')
+def dashboard():
+    return render_template('dashboard.html', render_url=RENDER_EXTERNAL_URL)
+
+@app.route('/api/stats')
+def api_stats():
+    stats = {
+        'subscribers': Database.get_subscriber_count(),
+        'total_games': len(Database.get_recent_games(1000)),
+        'recent_games': []
     }
     
-    // Manual trigger để test thông báo
-    if (url.pathname === '/notify') {
-      const result = await notifyAllUsers(env);
-      return new Response(JSON.stringify(result, null, 2), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    for game in Database.get_recent_games(5):
+        stats['recent_games'].append({
+            'title': game[1],
+            'image': game[3],
+            'end_date': game[5]
+        })
     
-    // Health check endpoint
-    if (url.pathname === '/health') {
-      return new Response(JSON.stringify({
-        status: 'ok',
-        timestamp: new Date().toISOString()
-      }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    return jsonify(stats)
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'subscribers': Database.get_subscriber_count()})
+
+def run_flask():
+    app.run(host='0.0.0.0', port=PORT, debug=False)
+
+# Main
+def main():
+    # Start Flask in background
+    flask_thread = Thread(target=run_flask, daemon=True)
+    flask_thread.start()
     
-    // Test endpoint để xem game hiện tại
-    if (url.pathname === '/test-games') {
-      const games = await getFreeGames();
-      return new Response(JSON.stringify(games, null, 2), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    logger.info(f"Dashboard starting on port {PORT}")
+    logger.info(f"External URL: {RENDER_EXTERNAL_URL}")
     
-    return new Response(
-      '🎮 Epic Games Free Bot is running!\n\n' +
-      'Endpoints:\n' +
-      '- POST /webhook - Telegram webhook\n' +
-      '- GET /notify - Manual notification trigger\n' +
-      '- GET /health - Health check\n' +
-      '- GET /test-games - View current free games',
-      { 
-        status: 200,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-      }
-    );
-  },
-  
-  // Cron job chạy mỗi ngày lúc 9h sáng UTC (16h Việt Nam)
-  async scheduled(event, env, ctx) {
-    console.log('Cron job triggered at:', new Date().toISOString());
+    # Start Telegram Bot
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    try {
-      const result = await notifyAllUsers(env);
-      console.log('Cron job result:', result);
-    } catch (error) {
-      console.error('Cron job error:', error);
-    }
-  }
-};
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stop", stop))
+    application.add_handler(CommandHandler("games", games_command))
+    application.add_handler(CommandHandler("donate", donate_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Schedule game check
+    job_queue = application.job_queue
+    job_queue.run_repeating(check_free_games, interval=CHECK_INTERVAL, first=10)
+    
+    logger.info("Bot started successfully!")
+    
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    main()
