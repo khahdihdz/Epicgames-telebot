@@ -1,380 +1,312 @@
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    };
+# 🚀 Hướng dẫn Deploy Bot lên Render - Chi tiết từng bước
 
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
-    }
+## 📌 Chuẩn bị
 
-    // API proxy
-    if (url.pathname === '/api/deals') {
-      try {
-        const apiUrl = 'https://www.cheapshark.com/api/1.0/deals?upperPrice=0&onSale=1&pageSize=60&sortBy=recent';
-        const response = await fetch(apiUrl);
-        const data = await response.json();
-        
-        return new Response(JSON.stringify(data), {
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-            'Cache-Control': 'public, max-age=180'
-          }
-        });
-      } catch (error) {
-        return new Response(JSON.stringify({ error: 'Failed to fetch deals' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-    }
+### 1. Tạo Bot Telegram
 
-    return new Response(HTML_CONTENT, {
-      headers: { 'Content-Type': 'text/html;charset=UTF-8' }
-    });
-  }
-};
+**Bước 1:** Mở Telegram, tìm kiếm `@BotFather`
 
-const HTML_CONTENT = `<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Theo dõi game giảm giá 100% từ Steam, Epic Games, GOG và nhiều cửa hàng khác">
-    <title>Game Deals 100% FREE - Steam & More</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-</head>
-<body>
-    <div id="root"></div>
-    
-    <script type="text/babel">
-        const { useState, useEffect } = React;
-        const { Gift, Clock, Calendar, ExternalLink, RefreshCw, AlertCircle, Store, Heart, X } = lucide;
+**Bước 2:** Gửi lệnh `/newbot`
 
-        function SteamDealsTracker() {
-          const [deals, setDeals] = useState([]);
-          const [loading, setLoading] = useState(true);
-          const [error, setError] = useState(null);
-          const [lastUpdate, setLastUpdate] = useState(null);
-          const [stats, setStats] = useState({ total: 0, steam: 0 });
-          const [showDonate, setShowDonate] = useState(false);
+**Bước 3:** BotFather sẽ hỏi tên bot:
+```
+Alright, a new bot. How are we going to call it?
+Please choose a name for your bot.
+```
+Nhập: `Epic Games Free Notifier` (hoặc tên bất kỳ)
 
-          const STORES = {
-            1: { name: 'Steam', color: 'bg-blue-600' },
-            2: { name: 'GamersGate', color: 'bg-orange-600' },
-            3: { name: 'GreenManGaming', color: 'bg-green-600' },
-            7: { name: 'GOG', color: 'bg-purple-600' },
-            8: { name: 'Origin', color: 'bg-orange-500' },
-            11: { name: 'Humble Store', color: 'bg-red-600' },
-            13: { name: 'Uplay', color: 'bg-blue-500' },
-            15: { name: 'Fanatical', color: 'bg-yellow-600' },
-            21: { name: 'WinGameStore', color: 'bg-indigo-600' },
-            23: { name: 'GameBillet', color: 'bg-pink-600' },
-            25: { name: 'Epic Games', color: 'bg-gray-700' },
-            27: { name: 'Gamesplanet', color: 'bg-cyan-600' },
-            28: { name: 'Gamesload', color: 'bg-teal-600' },
-            29: { name: 'IndieGala', color: 'bg-rose-600' },
-            30: { name: 'Blizzard', color: 'bg-blue-400' },
-            31: { name: 'Voidu', color: 'bg-violet-600' },
-            33: { name: 'DLGamer', color: 'bg-lime-600' },
-            34: { name: 'Noctre', color: 'bg-emerald-600' },
-            35: { name: 'DreamGame', color: 'bg-fuchsia-600' }
-          };
+**Bước 4:** BotFather hỏi username (phải kết thúc bằng `bot`):
+```
+Good. Now let's choose a username for your bot.
+It must end in `bot`. Like this, for example: TetrisBot or tetris_bot.
+```
+Nhập: `epicgamesfree_bot` (hoặc username khác)
 
-          const fetchDeals = async () => {
-            setLoading(true);
-            setError(null);
-            
-            try {
-              const response = await fetch('https://www.cheapshark.com/api/1.0/deals?upperPrice=0&onSale=1&pageSize=60&sortBy=recent');
-              
-              if (!response.ok) throw new Error('Không thể lấy dữ liệu');
-              
-              const data = await response.json();
-              
-              const freeDeals = data.filter(deal => {
-                const normalPrice = parseFloat(deal.normalPrice);
-                const salePrice = parseFloat(deal.salePrice);
-                const savings = parseFloat(deal.savings);
-                
-                return normalPrice > 0 && 
-                       salePrice === 0 && 
-                       savings >= 99 &&
-                       !deal.title.toLowerCase().includes('free to play') &&
-                       !deal.title.toLowerCase().includes('f2p');
-              });
-              
-              freeDeals.sort((a, b) => {
-                if (!a.releaseDate && !b.releaseDate) return 0;
-                if (!a.releaseDate) return 1;
-                if (!b.releaseDate) return -1;
-                return a.releaseDate - b.releaseDate;
-              });
+**Bước 5:** Lưu Token:
+```
+Done! Congratulations on your new bot.
+You will find it at t.me/epicgamesfree_bot
+...
+Use this token to access the HTTP API:
+1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+```
+✅ Copy và lưu token này!
 
-              setDeals(freeDeals);
-              setStats({
-                total: freeDeals.length,
-                steam: freeDeals.filter(d => d.storeID === '1').length
-              });
-              setLastUpdate(new Date());
-            } catch (err) {
-              setError('Không thể tải dữ liệu. Vui lòng thử lại sau.');
-              console.error('Error:', err);
-            } finally {
-              setLoading(false);
-            }
-          };
+**Bước 6:** Set commands cho bot, gửi `/setcommands`:
+```
+start - Bắt đầu và đăng ký nhận thông báo
+stop - Hủy đăng ký
+games - Xem game miễn phí hiện tại
+donate - Xem thông tin ủng hộ
+```
 
-          useEffect(() => {
-            fetchDeals();
-            const interval = setInterval(fetchDeals, 180000);
-            const donateTimer = setTimeout(() => setShowDonate(true), 30000);
-            
-            return () => {
-              clearInterval(interval);
-              clearTimeout(donateTimer);
-            };
-          }, []);
+### 2. Lấy Telegram ID
 
-          const formatTimeLeft = (timestamp) => {
-            if (!timestamp) return null;
-            
-            const now = Math.floor(Date.now() / 1000);
-            const diff = timestamp - now;
-            
-            if (diff <= 0) return 'Đã hết hạn';
-            
-            const days = Math.floor(diff / 86400);
-            const hours = Math.floor((diff % 86400) / 3600);
-            const minutes = Math.floor((diff % 3600) / 60);
-            
-            if (days > 7) return days + ' ngày';
-            if (days > 0) return days + ' ngày ' + hours + 'h';
-            if (hours > 0) return hours + 'h ' + minutes + 'm';
-            return minutes + ' phút';
-          };
+**Bước 1:** Tìm kiếm `@userinfobot` trên Telegram
 
-          const getStoreInfo = (storeID) => {
-            return STORES[storeID] || { name: 'Store ' + storeID, color: 'bg-gray-600' };
-          };
+**Bước 2:** Start bot, nó sẽ trả về:
+```
+Id: 123456789
+First name: Your Name
+...
+```
+✅ Lưu lại số `Id`
 
-          const getDealUrl = (deal) => {
-            return 'https://www.cheapshark.com/redirect?dealID=' + deal.dealID;
-          };
+## 🌐 Deploy trên Render
 
-          const getMetacriticColor = (score) => {
-            if (!score || score === '0') return 'bg-gray-600';
-            const numScore = parseInt(score);
-            if (numScore >= 75) return 'bg-green-600';
-            if (numScore >= 50) return 'bg-yellow-600';
-            return 'bg-red-600';
-          };
+### Phương án 1: Deploy trực tiếp từ GitHub (Khuyên dùng)
 
-          return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 text-white p-4">
-              <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-8 pt-8">
-                  <div className="flex items-center justify-center gap-3 mb-4">
-                    <Gift className="w-12 h-12 text-blue-400 animate-pulse" />
-                    <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                      Game Deals 100% FREE
-                    </h1>
-                  </div>
-                  <p className="text-slate-300 text-lg mb-2">
-                    Theo dõi game giảm giá 100% từ nhiều cửa hàng theo thời gian thực
-                  </p>
-                  <p className="text-slate-400 text-sm">Powered by CheapShark API</p>
-                  
-                  <button
-                    onClick={() => setShowDonate(true)}
-                    className="mt-4 inline-flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 rounded-full text-white font-semibold shadow-lg transition-all hover:scale-105"
-                  >
-                    <Heart className="w-4 h-4 fill-current" />
-                    Ủng hộ dự án
-                  </button>
-                  
-                  {stats.total > 0 && (
-                    <div className="flex items-center justify-center gap-6 mt-6">
-                      <div className="bg-slate-800/50 px-6 py-3 rounded-lg border border-slate-700">
-                        <div className="text-2xl font-bold text-blue-400">{stats.total}</div>
-                        <div className="text-xs text-slate-400">Tổng deals</div>
-                      </div>
-                      <div className="bg-slate-800/50 px-6 py-3 rounded-lg border border-slate-700">
-                        <div className="text-2xl font-bold text-green-400">{stats.steam}</div>
-                        <div className="text-xs text-slate-400">Steam deals</div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {lastUpdate && (
-                    <div className="flex items-center justify-center gap-2 mt-4 text-sm text-slate-400">
-                      <Clock className="w-4 h-4" />
-                      <span>Cập nhật: {lastUpdate.toLocaleTimeString('vi-VN')}</span>
-                      <button
-                        onClick={fetchDeals}
-                        disabled={loading}
-                        className="ml-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                      >
-                        <RefreshCw className={'w-4 h-4 ' + (loading ? 'animate-spin' : '')} />
-                        Làm mới
-                      </button>
-                    </div>
-                  )}
-                </div>
+#### A. Upload code lên GitHub
 
-                {error && (
-                  <div className="mb-6 p-4 bg-red-900/50 border border-red-500 rounded-lg flex items-center gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-400" />
-                    <p className="text-red-200">{error}</p>
-                  </div>
-                )}
+**Bước 1:** Tạo repository mới trên GitHub
+- Đăng nhập GitHub
+- Click nút `+` → `New repository`
+- Đặt tên: `epic-games-bot`
+- Chọn `Public` hoặc `Private`
+- Click `Create repository`
 
-                {loading && deals.length === 0 && (
-                  <div className="text-center py-20">
-                    <RefreshCw className="w-12 h-12 animate-spin mx-auto mb-4 text-blue-400" />
-                    <p className="text-slate-300">Đang tải deals...</p>
-                  </div>
-                )}
+**Bước 2:** Upload files
+- Click `uploading an existing file`
+- Kéo thả hoặc chọn các file:
+  - `bot.py`
+  - `requirements.txt`
+  - `runtime.txt`
+  - `render.yaml`
+  - `.gitignore`
+- Tạo folder `templates` và upload `dashboard.html`
+- Click `Commit changes`
 
-                {!loading && deals.length === 0 && !error && (
-                  <div className="text-center py-20">
-                    <Gift className="w-16 h-16 mx-auto mb-4 text-slate-600" />
-                    <p className="text-slate-400 text-lg">Hiện tại không có game giảm giá 100%</p>
-                    <p className="text-slate-500 text-sm mt-2">Hãy quay lại sau!</p>
-                  </div>
-                )}
+#### B. Deploy trên Render
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {deals.map((deal) => {
-                    const store = getStoreInfo(deal.storeID);
-                    const timeLeft = formatTimeLeft(deal.releaseDate);
-                    
-                    return (
-                      <div key={deal.dealID} className="bg-slate-800/50 backdrop-blur-sm rounded-xl overflow-hidden border border-slate-700 hover:border-blue-500 transition-all hover:transform hover:scale-105 shadow-xl">
-                        <div className="relative h-44 bg-slate-900 overflow-hidden">
-                          <img src={deal.thumb} alt={deal.title} className="w-full h-full object-cover" onError={(e) => e.target.style.display = 'none'} />
-                          <div className="absolute top-3 right-3 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-bold shadow-lg animate-pulse">100% OFF</div>
-                          <div className={'absolute bottom-3 left-3 ' + store.color + ' text-white px-3 py-1 rounded-lg text-xs font-semibold shadow-lg flex items-center gap-1'}>
-                            <Store className="w-3 h-3" />
-                            {store.name}
-                          </div>
-                          {deal.metacriticScore && deal.metacriticScore !== '0' && (
-                            <div className={'absolute top-3 left-3 ' + getMetacriticColor(deal.metacriticScore) + ' text-white px-2 py-1 rounded text-xs font-bold shadow-lg'}>
-                              {deal.metacriticScore}
-                            </div>
-                          )}
-                        </div>
+**Bước 1:** Truy cập [render.com](https://render.com)
+- Click `Get Started for Free`
+- Đăng ký bằng GitHub account
 
-                        <div className="p-4">
-                          <h3 className="text-lg font-bold mb-3 line-clamp-2 min-h-[3.5rem] leading-tight">{deal.title}</h3>
+**Bước 2:** Tạo Web Service
+- Vào Dashboard
+- Click `New +` → `Blueprint`
+- Cho phép Render truy cập GitHub
+- Chọn repository `epic-games-bot`
+- Render sẽ phát hiện file `render.yaml`
 
-                          <div className="space-y-2 mb-4">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-400">Giá gốc:</span>
-                              <span className="text-slate-300 line-through">${parseFloat(deal.normalPrice).toFixed(2)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-slate-400 text-sm">Giá hiện tại:</span>
-                              <span className="text-green-400 font-bold text-xl">FREE</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm pt-2 border-t border-slate-700">
-                              <span className="text-slate-400">Tiết kiệm:</span>
-                              <span className="text-yellow-400 font-semibold">{parseFloat(deal.savings).toFixed(0)}%</span>
-                            </div>
-                            {timeLeft && (
-                              <div className="flex items-center gap-2 text-sm pt-2">
-                                <Calendar className="w-4 h-4 text-yellow-400" />
-                                <span className="text-yellow-400">{timeLeft === 'Đã hết hạn' ? timeLeft : 'Còn: ' + timeLeft}</span>
-                              </div>
-                            )}
-                            {deal.steamRatingPercent && deal.steamRatingPercent !== '0' && (
-                              <div className="flex items-center justify-between text-xs text-slate-400">
-                                <span>Steam Rating:</span>
-                                <span className={'font-semibold ' + (parseInt(deal.steamRatingPercent) >= 80 ? 'text-green-400' : parseInt(deal.steamRatingPercent) >= 60 ? 'text-yellow-400' : 'text-red-400')}>
-                                  {deal.steamRatingPercent}% {deal.steamRatingCount && '(' + deal.steamRatingCount + ')'}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+**Bước 3:** Cấu hình Environment Variables
+- Render sẽ hiện form nhập biến môi trường
+- Nhập:
+  ```
+  TELEGRAM_TOKEN = paste_token_của_bạn
+  ADMIN_ID = paste_id_của_bạn
+  ```
+- Click `Apply`
 
-                          <a href={getDealUrl(deal)} target="_blank" rel="noopener noreferrer" className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all">
-                            Lấy ngay
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+**Bước 4:** Deploy
+- Render bắt đầu build (2-5 phút)
+- Theo dõi logs để xem tiến trình
+- Khi thấy `Bot started successfully!` → Hoàn tất!
 
-                <div className="text-center mt-12 pb-8 space-y-2">
-                  <p className="text-slate-400 text-sm">Dữ liệu cập nhật mỗi 3 phút từ CheapShark API</p>
-                  <p className="text-slate-500 text-xs">Hỗ trợ Steam, Epic Games, GOG, Humble Store và nhiều cửa hàng khác</p>
-                  <p className="text-yellow-400 text-sm font-semibold">⚡ Nhanh tay lấy game trước khi hết hạn!</p>
-                </div>
-              </div>
+**Bước 5:** Lấy URL
+- Sau khi deploy xong, copy URL (dạng: `https://epic-games-bot-xxxx.onrender.com`)
+- Mở Telegram, tìm bot và gửi `/start`
 
-              {showDonate && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDonate(false)}>
-                  <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-700" onClick={(e) => e.stopPropagation()}>
-                    <div className="relative p-6 border-b border-slate-700">
-                      <button onClick={() => setShowDonate(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
-                        <X className="w-6 h-6" />
-                      </button>
-                      <div className="flex items-center gap-3 mb-2">
-                        <Heart className="w-8 h-8 text-pink-500 fill-current animate-pulse" />
-                        <h2 className="text-2xl font-bold text-white">Ủng hộ dự án</h2>
-                      </div>
-                      <p className="text-slate-300 text-sm">Cảm ơn bạn đã sử dụng! Hãy ủng hộ để duy trì và phát triển dự án</p>
-                    </div>
+### Phương án 2: Deploy Manual (Không dùng render.yaml)
 
-                    <div className="p-6">
-                      <div className="bg-white rounded-xl p-4 mb-4">
-                        <img src="https://api.vietqr.io/image/970426-13001011869246-GuEo6F2.jpg?accountName=DINH%20TRONG%20KHANH&amount=0" alt="VietQR Donation" className="w-full h-auto rounded-lg" />
-                      </div>
+**Bước 1:** Tạo Web Service
+- Dashboard → `New +` → `Web Service`
+- Connect GitHub repository
 
-                      <div className="space-y-2 bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">Ngân hàng:</span>
-                          <span className="text-white font-semibold">Ngân hàng Hàng Hải MSB</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">Số tài khoản:</span>
-                          <span className="text-white font-mono">13001011869246</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">Chủ tài khoản:</span>
-                          <span className="text-white font-semibold">DINH TRONG KHANH</span>
-                        </div>
-                      </div>
+**Bước 2:** Cấu hình
+```
+Name: epic-games-bot
+Environment: Python 3
+Region: Singapore (hoặc gần nhất)
+Branch: main
+Build Command: pip install -r requirements.txt
+Start Command: python bot.py
+```
 
-                      <div className="mt-4 text-center">
-                        <p className="text-slate-300 text-sm">💝 Mọi đóng góp đều được trân trọng!</p>
-                        <p className="text-slate-400 text-xs mt-1">Quét mã QR bằng app ngân hàng để chuyển khoản</p>
-                      </div>
+**Bước 3:** Chọn Plan
+- Chọn `Free` (0$/tháng)
 
-                      <button onClick={() => setShowDonate(false)} className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg text-white font-semibold transition-all">
-                        Đóng
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        }
+**Bước 4:** Advanced Settings
+- Add Environment Variables:
+  - Key: `TELEGRAM_TOKEN`, Value: `your_token`
+  - Key: `ADMIN_ID`, Value: `your_id`
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<SteamDealsTracker />);
-    </script>
-</body>
-</html>`;
+**Bước 5:** Create Web Service
+
+## 💾 Thêm Persistent Storage (Quan trọng!)
+
+Render free tier sẽ restart service, làm mất database. Để giữ data:
+
+**Bước 1:** Vào service đã tạo
+
+**Bước 2:** Tab `Settings` → Scroll xuống `Disks`
+
+**Bước 3:** Click `Add Disk`
+```
+Name: bot-data
+Mount Path: /opt/render/project/src
+Size: 1 GB
+```
+
+**Bước 4:** Click `Save Changes`
+
+**Bước 5:** Render sẽ restart service, chờ 1-2 phút
+
+✅ Database giờ sẽ không bị mất khi restart!
+
+## 🔄 Giữ Bot luôn chạy (Không bị Sleep)
+
+Render free tier sleep sau 15 phút không hoạt động. Giải pháp:
+
+### Sử dụng UptimeRobot
+
+**Bước 1:** Đăng ký [uptimerobot.com](https://uptimerobot.com) (miễn phí)
+
+**Bước 2:** Add New Monitor
+```
+Monitor Type: HTTP(s)
+Friendly Name: Epic Games Bot
+URL: https://your-app.onrender.com/health
+Monitoring Interval: 5 minutes
+```
+
+**Bước 3:** Save
+
+✅ UptimeRobot sẽ ping bot mỗi 5 phút, giữ nó luôn awake!
+
+### Sử dụng Cron-Job.org (Thay thế)
+
+**Bước 1:** Đăng ký [cron-job.org](https://cron-job.org)
+
+**Bước 2:** Create Cronjob
+```
+Title: Keep Bot Alive
+URL: https://your-app.onrender.com/health
+Execution: Every 5 minutes
+```
+
+## 📊 Kiểm tra Bot hoạt động
+
+### 1. Check Logs
+
+- Vào service trên Render
+- Tab `Logs`
+- Xem logs realtime, tìm:
+  ```
+  Bot started successfully!
+  Dashboard starting on port 10000
+  ```
+
+### 2. Test Bot
+
+- Mở Telegram
+- Tìm bot của bạn
+- Gửi `/start`
+- Bot trả lời → ✅ Thành công!
+
+### 3. Test Dashboard
+
+- Mở browser
+- Truy cập: `https://your-app.onrender.com`
+- Thấy dashboard → ✅ Thành công!
+
+### 4. Test Thông báo
+
+Chờ 1 giờ hoặc restart service để trigger check game:
+- Service → Settings → Manual Deploy → Deploy
+- Bot sẽ check game và gửi thông báo nếu có game mới
+
+## 🔧 Cập nhật Code
+
+**Bước 1:** Sửa code trên máy local
+
+**Bước 2:** Push lên GitHub
+```bash
+git add .
+git commit -m "Update features"
+git push
+```
+
+**Bước 3:** Render tự động deploy lại!
+
+## 🐛 Xử lý lỗi thường gặp
+
+### Lỗi: "Application failed to start"
+
+**Nguyên nhân:** Token hoặc requirements sai
+
+**Giải pháp:**
+1. Check Environment Variables
+2. Xem logs để biết lỗi cụ thể
+3. Verify requirements.txt có đầy đủ thư viện
+
+### Lỗi: "Unauthorized" từ Telegram
+
+**Nguyên nhân:** Bot Token sai
+
+**Giải pháp:**
+1. Verify token từ BotFather
+2. Update Environment Variable `TELEGRAM_TOKEN`
+3. Redeploy service
+
+### Lỗi: Database không lưu
+
+**Nguyên nhân:** Chưa có Persistent Disk
+
+**Giải pháp:**
+1. Add Disk như hướng dẫn ở trên
+2. Restart service
+
+### Bot bị sleep liên tục
+
+**Nguyên nhân:** Không có traffic
+
+**Giải pháp:**
+1. Setup UptimeRobot hoặc Cron-Job
+2. Hoặc upgrade lên Render paid plan
+
+## 📈 Monitoring
+
+### Check số người dùng
+
+Truy cập: `https://your-app.onrender.com/api/stats`
+
+Response:
+```json
+{
+  "subscribers": 10,
+  "total_games": 5,
+  "recent_games": [...]
+}
+```
+
+### Check health
+
+Truy cập: `https://your-app.onrender.com/health`
+
+Response:
+```json
+{
+  "status": "ok",
+  "subscribers": 10
+}
+```
+
+## 🎉 Hoàn tất!
+
+Bot của bạn giờ đang chạy 24/7 trên Render!
+
+**Kiểm tra:**
+- ✅ Bot trả lời trên Telegram
+- ✅ Dashboard hiển thị đúng
+- ✅ Database lưu trữ
+- ✅ Thông báo tự động mỗi giờ
+
+**Tiếp theo:**
+1. Share bot với bạn bè
+2. Monitor logs thường xuyên
+3. Nhận donate qua QR code 💝
+
+---
+
+Có vấn đề gì cứ hỏi nhé! 🚀
