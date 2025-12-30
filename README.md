@@ -1,535 +1,266 @@
-# Hướng dẫn Setup Bot với Secrets
+# 🎮 Epic Games Free Bot - Deploy trên Render
 
-## 📋 Mục lục
-1. [Chuẩn bị](#1-chuẩn-bị)
-2. [Tạo Telegram Bot](#2-tạo-telegram-bot)
-3. [Tạo Google Service Account](#3-tạo-google-service-account)
-4. [Tạo và Cấu hình Google Sheets](#4-tạo-và-cấu-hình-google-sheets)
-5. [Setup Cloudflare Workers](#5-setup-cloudflare-workers)
-6. [Cài đặt Secrets](#6-cài-đặt-secrets)
-7. [Deploy và Test](#7-deploy-và-test)
+Bot Telegram thông báo game miễn phí hàng tuần trên Epic Games Store với dashboard quản lý và tính năng donate.
 
----
+## ✨ Tính năng
 
-## 1. Chuẩn bị
+- 🔔 Thông báo tự động khi có game miễn phí mới
+- 📊 Dashboard web với Bootstrap để quản lý và xem thống kê
+- 💝 Tích hợp donate qua QR Code VietQR (MSB)
+- 🗄️ Lưu trữ dữ liệu với SQLite
+- ⚡ Kiểm tra game mỗi giờ
+- 🎯 Giao diện đẹp và dễ sử dụng
+- ☁️ Deploy miễn phí trên Render
 
-### Cài đặt công cụ cần thiết:
+## 📋 Yêu cầu
 
-```bash
-# Cài đặt Node.js (nếu chưa có)
-# Download từ: https://nodejs.org/
+- Tài khoản GitHub
+- Tài khoản Render (miễn phí)
+- Telegram Bot Token
 
-# Cài đặt Wrangler CLI
-npm install -g wrangler
+## 🚀 Hướng dẫn Deploy trên Render
 
-# Đăng nhập Cloudflare
-wrangler login
+### Bước 1: Tạo Telegram Bot
+
+1. Mở Telegram và tìm [@BotFather](https://t.me/botfather)
+2. Gửi lệnh `/newbot`
+3. Đặt tên và username cho bot (ví dụ: `EpicGamesFreeBot`)
+4. Lưu lại **Bot Token** (dạng: `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz`)
+5. Gửi `/setcommands` cho BotFather và paste:
 ```
-
----
-
-## 2. Tạo Telegram Bot
-
-1. Mở Telegram, tìm **@BotFather**
-2. Gửi lệnh: `/newbot`
-3. Đặt tên bot: `Epic Games Free Bot`
-4. Đặt username (phải kết thúc bằng `bot`): `epicgamesfree_bot`
-5. **Lưu lại Bot Token** (dạng: `1234567890:ABCdefGHIjklMNOpqrs`)
-
-### Tùy chọn: Cấu hình bot commands
-
-Gửi cho @BotFather:
-```
-/setcommands
-```
-
-Sau đó paste:
-```
-start - Bắt đầu nhận thông báo
+start - Bắt đầu và đăng ký nhận thông báo
+stop - Hủy đăng ký
 games - Xem game miễn phí hiện tại
-stats - Thống kê bot
-stop - Dừng nhận thông báo
+donate - Xem thông tin ủng hộ
 ```
+
+### Bước 2: Lấy Telegram ID của bạn
+
+1. Mở [@userinfobot](https://t.me/userinfobot)
+2. Bot sẽ trả về ID của bạn (ví dụ: `123456789`)
+3. Lưu lại con số này
+
+### Bước 3: Tạo Repository GitHub
+
+1. Đăng nhập GitHub
+2. Tạo repository mới (ví dụ: `epic-games-bot`)
+3. Upload các file sau vào repository:
+   - `bot.py`
+   - `requirements.txt`
+   - `runtime.txt`
+   - `render.yaml`
+   - `.gitignore`
+   - Thư mục `templates/` chứa `dashboard.html`
+
+Hoặc dùng Git command line:
+
+```bash
+git init
+git add .
+git commit -m "Initial commit"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/epic-games-bot.git
+git push -u origin main
+```
+
+### Bước 4: Deploy trên Render
+
+#### Cách 1: Sử dụng render.yaml (Khuyên dùng)
+
+1. Truy cập [Render Dashboard](https://dashboard.render.com/)
+2. Click **New** → **Blueprint**
+3. Connect GitHub repository của bạn
+4. Render sẽ tự động phát hiện file `render.yaml`
+5. Nhập Environment Variables:
+   - `TELEGRAM_TOKEN`: Token bot từ BotFather
+   - `ADMIN_ID`: ID Telegram của bạn
+
+#### Cách 2: Tạo Web Service thủ công
+
+1. Truy cập [Render Dashboard](https://dashboard.render.com/)
+2. Click **New** → **Web Service**
+3. Connect GitHub repository
+4. Cấu hình:
+   - **Name**: `epic-games-bot`
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python bot.py`
+   - **Plan**: `Free`
+
+5. Thêm Environment Variables:
+   ```
+   TELEGRAM_TOKEN = your_bot_token_here
+   ADMIN_ID = your_telegram_id_here
+   ```
+
+6. Click **Create Web Service**
+
+### Bước 5: Cấu hình Persistent Disk (Tùy chọn)
+
+Để lưu database khi restart:
+
+1. Vào service vừa tạo
+2. Tab **Settings** → **Disks**
+3. Click **Add Disk**
+4. Cấu hình:
+   - **Name**: `bot-data`
+   - **Mount Path**: `/opt/render/project/src`
+   - **Size**: `1 GB` (miễn phí)
+5. Click **Save**
+
+### Bước 6: Hoàn tất
+
+1. Render sẽ tự động deploy (mất 2-5 phút)
+2. Sau khi deploy xong, bạn sẽ có:
+   - Bot Telegram hoạt động 24/7
+   - Dashboard tại: `https://your-app-name.onrender.com`
+3. Mở Telegram, tìm bot của bạn và gửi `/start`
+
+## 🔧 Cấu hình nâng cao
+
+### Thêm Webhook URL vào bot
+
+Trong file `bot.py`, bạn có thể thêm webhook thay vì polling:
+
+```python
+# Thay vì
+application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+# Dùng
+application.run_webhook(
+    listen="0.0.0.0",
+    port=PORT,
+    webhook_url=f"{RENDER_EXTERNAL_URL}/{TELEGRAM_TOKEN}"
+)
+```
+
+### Tùy chỉnh thời gian check
+
+Trong `bot.py`, thay đổi:
+
+```python
+CHECK_INTERVAL = 3600  # 3600 giây = 1 giờ
+```
+
+### Cập nhật code
+
+Sau khi thay đổi code:
+
+```bash
+git add .
+git commit -m "Update code"
+git push
+```
+
+Render sẽ tự động deploy lại!
+
+## 📱 Sử dụng Bot
+
+### Lệnh cơ bản:
+
+- `/start` - Đăng ký nhận thông báo
+- `/stop` - Hủy đăng ký
+- `/games` - Xem game miễn phí hiện tại
+- `/donate` - Xem thông tin ủng hộ
+
+### Dashboard
+
+Truy cập: `https://your-app-name.onrender.com`
+
+Hiển thị:
+- 📊 Số người đăng ký
+- 🎮 Số game đã thông báo
+- 🎁 Danh sách game miễn phí
+- 💝 QR code donate
+
+## 📁 Cấu trúc Project
+
+```
+epic-games-bot/
+├── bot.py                 # Code chính
+├── requirements.txt       # Thư viện Python
+├── runtime.txt           # Python version
+├── render.yaml           # Cấu hình Render
+├── .gitignore            # Loại trừ file
+├── bot_data.db           # Database (tự động tạo)
+├── templates/
+│   └── dashboard.html    # Giao diện dashboard
+└── README.md             # File này
+```
+
+## 🐛 Troubleshooting
+
+### Bot không hoạt động?
+
+1. Kiểm tra logs trên Render Dashboard
+2. Verify Bot Token đúng chưa
+3. Kiểm tra Environment Variables
+
+### Database bị mất sau restart?
+
+1. Thêm Persistent Disk như hướng dẫn ở Bước 5
+2. Hoặc dùng PostgreSQL (xem bên dưới)
+
+### Free tier của Render
+
+- Web service miễn phí sẽ sleep sau 15 phút không hoạt động
+- Tự động wake up khi có request
+- Có thể dùng UptimeRobot để ping mỗi 5 phút
+
+## 🔄 Nâng cấp Database sang PostgreSQL
+
+Nếu muốn database ổn định hơn:
+
+1. Thêm PostgreSQL service trên Render
+2. Cài `psycopg2-binary` trong requirements.txt
+3. Thay đổi code database connection
+
+## 💡 Tips
+
+1. **Giữ bot luôn chạy**: Dùng [UptimeRobot](https://uptimerobot.com/) ping dashboard mỗi 5 phút
+2. **Custom domain**: Render cho phép thêm custom domain miễn phí
+3. **Logs**: Xem logs realtime trên Render Dashboard
+4. **Auto deploy**: Mỗi lần push code, Render tự động deploy
+
+## 💝 Donate
+
+**🏦 Ngân hàng MSB**
+- 📱 Số TK: 13001011869246
+- 👤 Chủ TK: DINH TRONG KHANH
+
+Hoặc quét QR code trong bot!
+
+## 🔗 Links hữu ích
+
+- [Render Documentation](https://render.com/docs)
+- [Telegram Bot API](https://core.telegram.org/bots/api)
+- [Epic Games Store API](https://store-site-backend-static.ak.epicgames.com/)
+
+## 📝 License
+
+MIT License - Tự do sử dụng và chỉnh sửa
+
+## 👨‍💻 Tác giả
+
+**DINH TRONG KHANH**
 
 ---
 
-## 3. Tạo Google Service Account
+**Chúc bạn deploy thành công! 🎮🚀**
 
-### Bước 1: Tạo Project
-1. Truy cập [Google Cloud Console](https://console.cloud.google.com)
-2. Click "Select a project" → "New Project"
-3. Đặt tên: `epic-games-bot`
-4. Click "Create"
+## ❓ FAQ
 
-### Bước 2: Enable API
-1. Menu ≡ → "APIs & Services" → "Library"
-2. Tìm "Google Sheets API"
-3. Click "Enable"
+**Q: Render free tier có giới hạn gì?**
+A: 750 giờ/tháng miễn phí, đủ để chạy 1 bot 24/7. Service sẽ sleep sau 15 phút không hoạt động.
 
-### Bước 3: Tạo Service Account
-1. Menu ≡ → "APIs & Services" → "Credentials"
-2. Click "Create Credentials" → "Service Account"
-3. Điền:
-   - Name: `epic-games-bot`
-   - ID: auto-generate
-4. Click "Create and Continue"
-5. Skip phần Grant access
-6. Click "Done"
+**Q: Làm sao để bot không bị sleep?**
+A: Dùng UptimeRobot hoặc cron-job.org để ping dashboard mỗi 5-10 phút.
 
-### Bước 4: Download Key
-1. Click vào Service Account vừa tạo
-2. Tab "Keys" → "Add Key" → "Create new key"
-3. Chọn "JSON"
-4. Click "Create"
-5. **Lưu file JSON này - sẽ dùng ở bước 6**
+**Q: Database có bị mất không?**
+A: Nếu dùng Persistent Disk thì không. Nếu không có disk, data sẽ mất khi restart.
 
-File JSON có dạng:
-```json
-{
-  "type": "service_account",
-  "project_id": "epic-games-bot-xxxxx",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
-  "client_email": "epic-games-bot@epic-games-bot-xxxxx.iam.gserviceaccount.com",
-  ...
-}
-```
+**Q: Có thể dùng webhook thay polling không?**
+A: Có, nhưng polling đơn giản hơn và phù hợp với free tier.
 
----
-
-## 4. Tạo và Cấu hình Google Sheets
-
-### Bước 1: Tạo Spreadsheet
-1. Truy cập [Google Sheets](https://sheets.google.com)
-2. Tạo spreadsheet mới
-3. Đặt tên: "Epic Games Bot Users"
-
-### Bước 2: Cấu trúc Sheet
-1. Đổi tên Sheet1 thành **"Users"**
-2. Thêm header vào hàng 1:
-   - Cell A1: `Chat ID`
-   - Cell B1: `Username`
-   - Cell C1: `Registered At`
-
-### Bước 3: Share với Service Account
-1. Click nút "Share" (góc phải trên)
-2. Paste **client_email** từ file JSON (bước 3)
-   - Dạng: `epic-games-bot@xxxxx.iam.gserviceaccount.com`
-3. Chọn quyền: **Editor**
-4. Bỏ tick "Notify people"
-5. Click "Share"
-
-### Bước 4: Lấy Spreadsheet ID
-Từ URL của Google Sheet:
-```
-https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                                       ← Đây là SPREADSHEET_ID
-```
-**Lưu lại ID này - sẽ dùng ở bước 6**
-
----
-
-## 5. Setup Cloudflare Workers
-
-### Bước 1: Tạo project
-```bash
-# Tạo project mới
-npm create cloudflare@latest epic-games-bot
-
-# Chọn các option:
-# - Type: "Hello World" Worker
-# - TypeScript: No
-# - Git: Yes (recommended)
-# - Deploy: No (sẽ deploy sau)
-
-cd epic-games-bot
-```
-
-### Bước 2: Thêm code
-1. Mở file `src/index.js`
-2. **Xóa toàn bộ nội dung cũ**
-3. **Copy code từ artifact "Cloudflare Workers - Epic Games Bot"** vào
-
-### Bước 3: Cập nhật wrangler.toml
-Chỉnh sửa file `wrangler.toml`:
-
-```toml
-name = "epic-games-bot"
-main = "src/index.js"
-compatibility_date = "2024-01-01"
-
-# Cron job - chạy mỗi ngày lúc 9:00 UTC (16:00 giờ Việt Nam)
-[triggers]
-crons = ["0 9 * * *"]
-
-# Không cần vars vì dùng secrets
-```
-
----
-
-## 6. Cài đặt Secrets
-
-### Phương pháp 1: Sử dụng Script tự động (Khuyến nghị)
-
-#### Trên Linux/macOS:
-
-```bash
-# Tải script
-curl -o setup-secrets.sh https://raw.githubusercontent.com/khahdihdz/Epicgames-telebot/refs/heads/main/setup-secrets.sh
-
-# Hoặc tạo file thủ công từ artifact "setup-secrets.sh"
-
-# Cấp quyền thực thi
-chmod +x setup-secrets.sh
-
-# Chạy script
-./setup-secrets.sh
-```
-
-Script sẽ yêu cầu bạn nhập:
-1. **Bot Token** từ @BotFather
-2. **Spreadsheet ID** từ URL Google Sheet
-3. **Đường dẫn file JSON** của Service Account
-
-#### Trên Windows:
-
-```powershell
-# Tạo file setup-secrets.ps1 với nội dung:
-
-# 1. TELEGRAM_BOT_TOKEN
-$botToken = Read-Host "Nhập Bot Token"
-$botToken | wrangler secret put TELEGRAM_BOT_TOKEN
-
-# 2. SPREADSHEET_ID  
-$spreadsheetId = Read-Host "Nhập Spreadsheet ID"
-$spreadsheetId | wrangler secret put SPREADSHEET_ID
-
-# 3. GOOGLE_SERVICE_ACCOUNT_JSON
-$jsonPath = Read-Host "Nhập đường dẫn file JSON"
-Get-Content $jsonPath | wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
-
-Write-Host "✅ Đã cài đặt xong tất cả secrets!"
-```
-
-Chạy:
-```powershell
-.\setup-secrets.ps1
-```
-
-### Phương pháp 2: Setup thủ công
-
-```bash
-# 1. Set Bot Token
-echo "YOUR_BOT_TOKEN" | wrangler secret put TELEGRAM_BOT_TOKEN
-
-# 2. Set Spreadsheet ID
-echo "YOUR_SPREADSHEET_ID" | wrangler secret put SPREADSHEET_ID
-
-# 3. Set Service Account JSON (toàn bộ nội dung file)
-cat path/to/service-account.json | wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
-```
-
-### Kiểm tra secrets đã được lưu:
-```bash
-wrangler secret list
-```
-
-Bạn sẽ thấy:
-```
-Name                          Created At
-TELEGRAM_BOT_TOKEN            2024-01-01T00:00:00.000Z
-SPREADSHEET_ID                2024-01-01T00:00:00.000Z
-GOOGLE_SERVICE_ACCOUNT_JSON   2024-01-01T00:00:00.000Z
-```
-
----
-
-## 7. Deploy và Test
-
-### Bước 1: Deploy Worker
-```bash
-npx wrangler deploy
-```
-
-Sau khi deploy thành công, bạn sẽ nhận được URL:
-```
-Published epic-games-bot (1.23 sec)
-  https://epic-games-bot.your-username.workers.dev
-```
-
-**Lưu lại URL này!**
-
-### Bước 2: Thiết lập Telegram Webhook
-
-#### Cách 1: Sử dụng script (Linux/macOS)
-
-```bash
-# Tải script
-curl -o set-webhook.sh https://raw.githubusercontent.com/khahdihdz/Epicgames-telebot/refs/heads/main/set-webhook.sh
-
-# Hoặc tạo từ artifact "set-webhook.sh"
-
-# Cấp quyền
-chmod +x set-webhook.sh
-
-# Chạy
-./set-webhook.sh
-```
-
-#### Cách 2: Thủ công với curl
-
-```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://epic-games-bot.your-username.workers.dev/webhook"}'
-```
-
-#### Cách 3: Qua trình duyệt
-
-Truy cập URL:
-```
-https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://epic-games-bot.your-username.workers.dev/webhook
-```
-
-### Bước 3: Kiểm tra Webhook
-```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
-```
-
-Kết quả mong muốn:
-```json
-{
-  "ok": true,
-  "result": {
-    "url": "https://epic-games-bot.your-username.workers.dev/webhook",
-    "has_custom_certificate": false,
-    "pending_update_count": 0
-  }
-}
-```
-
-### Bước 4: Test Bot
-
-1. **Mở Telegram**, tìm bot bằng username (ví dụ: `@epicgamesfree_bot`)
-2. **Gửi lệnh `/start`**
-   - Bot sẽ chào bạn và lưu Chat ID vào Google Sheet
-3. **Gửi lệnh `/games`**
-   - Bot sẽ hiển thị game miễn phí hiện tại
-4. **Kiểm tra Google Sheet**
-   - Chat ID của bạn đã được thêm vào
-
-### Bước 5: Test Manual Notification
-
-Truy cập URL để test gửi thông báo thủ công:
-```
-https://epic-games-bot.your-username.workers.dev/notify
-```
-
-Bot sẽ gửi thông báo cho tất cả users trong Google Sheet.
-
-### Bước 6: Test các endpoint khác
-
-```bash
-# Health check
-curl https://epic-games-bot.your-username.workers.dev/health
-
-# Xem game hiện tại (JSON)
-curl https://epic-games-bot.your-username.workers.dev/test-games
-```
-
----
-
-## 🎯 Các lệnh Bot
-
-| Lệnh | Mô tả |
-|------|-------|
-| `/start` | Đăng ký nhận thông báo game miễn phí |
-| `/games` | Xem danh sách game miễn phí hiện tại |
-| `/stats` | Xem thống kê bot |
-| `/stop` | Hủy đăng ký thông báo |
-
----
-
-## 🔧 Troubleshooting
-
-### Lỗi: "Unauthorized" khi truy cập Google Sheets
-
-**Nguyên nhân:** Service Account chưa được share quyền truy cập Sheet
-
-**Giải pháp:**
-1. Mở Google Sheet
-2. Click "Share"
-3. Thêm email của Service Account
-4. Chọn quyền "Editor"
-
-### Lỗi: Bot không phản hồi
-
-**Kiểm tra:**
-```bash
-# 1. Kiểm tra webhook
-curl "https://api.telegram.org/bot<BOT_TOKEN>/getWebhookInfo"
-
-# 2. Xem logs trên Cloudflare
-wrangler tail
-
-# 3. Test worker trực tiếp
-curl https://epic-games-bot.your-username.workers.dev/health
-```
-
-**Giải pháp:**
-- Đảm bảo webhook đã được set đúng
-- Kiểm tra Bot Token chính xác
-- Xem logs để tìm lỗi cụ thể
-
-### Lỗi: "Invalid private key"
-
-**Nguyên nhân:** Private key trong Service Account JSON không đúng format
-
-**Giải pháp:**
-1. Download lại file JSON từ Google Cloud
-2. Đảm bảo copy toàn bộ nội dung file (bao gồm cả `{` và `}`)
-3. Set lại secret:
-```bash
-cat service-account.json | wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
-```
-
-### Cron job không chạy
-
-**Kiểm tra:**
-1. Đảm bảo `wrangler.toml` có cấu hình cron:
-```toml
-[triggers]
-crons = ["0 9 * * *"]
-```
-2. Đợi đến giờ chạy (9:00 UTC = 16:00 VN)
-3. Test manual: truy cập `/notify`
-4. Xem logs:
-```bash
-wrangler tail
-```
-
-### Rate limit từ Telegram
-
-**Triệu chứng:** Bot gửi tin nhắn bị chậm hoặc lỗi
-
-**Giải pháp:** 
-- Code đã có delay tự động (500ms giữa tin nhắn, 2s giữa users)
-- Nếu vẫn bị, tăng delay trong code:
-```javascript
-// Tăng từ 1000 lên 2000
-await new Promise(resolve => setTimeout(resolve, 2000));
-```
-
----
-
-## 📊 Giới hạn Free Tier
-
-### Cloudflare Workers (Free Plan)
-- ✅ 100,000 requests/ngày
-- ✅ 10ms CPU time/request  
-- ✅ 128MB memory
-- ✅ Đủ cho vài nghìn users
-
-### Google Sheets API (Free)
-- ✅ 60 requests/phút/user
-- ✅ 500 requests/100 giây
-- ✅ Đủ cho bot nhỏ và vừa
-
-### Telegram Bot API (Free)
-- ✅ 30 tin nhắn/giây
-- ✅ Không giới hạn users
-- ✅ Miễn phí hoàn toàn
-
----
-
-## 🔒 Bảo mật
-
-### ✅ Đã làm đúng:
-- Sử dụng Cloudflare Secrets thay vì hard-code
-- Không commit credentials lên Git
-- Service Account chỉ có quyền truy cập Sheet cần thiết
-
-### ⚠️ Khuyến nghị thêm:
-1. **Thêm .gitignore:**
-```gitignore
-node_modules/
-.wrangler/
-*.log
-service-account.json
-.env
-```
-
-2. **Giới hạn quyền Service Account:**
-   - Chỉ share Sheet cần thiết
-   - Không dùng Editor role cho toàn project
-
-3. **Backup Google Sheet:**
-   - File → Make a copy
-   - Hoặc download định kỳ
-
----
-
-## 🚀 Nâng cấp (Tùy chọn)
-
-### 1. Thêm database thật (KV/D1)
-Thay Google Sheets bằng Cloudflare KV hoặc D1:
-
-```javascript
-// Thêm vào wrangler.toml
-[[kv_namespaces]]
-binding = "USERS_KV"
-id = "your-kv-id"
-```
-
-### 2. Thêm tính năng lọc
-```javascript
-// Lọc theo thể loại game
-if (text.startsWith('/filter')) {
-  const genre = text.split(' ')[1];
-  // Lọc game theo thể loại
-}
-```
-
-### 3. Multi-language
-```javascript
-const messages = {
-  en: { welcome: "Welcome!" },
-  vi: { welcome: "Chào mừng!" }
-};
-```
-
-### 4. Analytics
-Tích hợp Google Analytics hoặc Cloudflare Analytics để theo dõi:
-- Số lượng users
-- Lượt sử dụng lệnh
-- Hiệu suất bot
-
----
-
-## 📝 Checklist hoàn thành
-
-- [ ] Tạo Telegram Bot và lưu Bot Token
-- [ ] Tạo Google Service Account và download JSON
-- [ ] Tạo Google Sheet và share với Service Account
-- [ ] Cài đặt Wrangler CLI và login Cloudflare
-- [ ] Tạo project Cloudflare Workers
-- [ ] Copy code vào `src/index.js`
-- [ ] Cấu hình `wrangler.toml`
-- [ ] Set 3 secrets (BOT_TOKEN, SPREADSHEET_ID, SERVICE_ACCOUNT_JSON)
-- [ ] Deploy worker
-- [ ] Set webhook Telegram
-- [ ] Test bot với `/start` và `/games`
-- [ ] Kiểm tra Google Sheet có data
-- [ ] Test manual notification qua `/notify`
-
----
-
-## 🆘 Liên hệ & Support
-
-- **Epic Games API:** [store.epicgames.com](https://store.epicgames.com)
-- **Telegram Bot API:** [core.telegram.org/bots](https://core.telegram.org/bots)
-- **Cloudflare Docs:** [developers.cloudflare.com](https://developers.cloudflare.com)
-- **Google Sheets API:** [developers.google.com/sheets](https://developers.google.com/sheets)
-
-**Chúc bạn thành công! 🎮🚀**
+**Q: Chi phí deploy?**
+A: Hoàn toàn miễn phí với Render free tier!
