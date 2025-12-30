@@ -1,24 +1,18 @@
-{
-  "name": "epic-games-bot",
-  "version": "1.0.0",
-  "description": "Telegram bot để theo dõi game miễn phí trên Epic Games Store",
-  "main": "src/index.js",
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "tail": "wrangler tail",
-    "setup": "chmod +x setup-secrets.sh && ./setup-secrets.sh",
-    "webhook": "chmod +x set-webhook.sh && ./set-webhook.sh"
-  },
-  "keywords": [
-    "telegram",
-    "bot",
-    "epic-games",
-    "cloudflare-workers"
-  ],
-  "author": "Your Name",
-  "license": "MIT",
-  "devDependencies": {
-    "wrangler": "^3.0.0"
-  }
-}
+services:
+  - type: web
+    name: epic-games-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    disk:
+      name: bot-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
